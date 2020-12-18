@@ -1,0 +1,302 @@
+#!/usr/bin/env bash
+
+# 2FA: A little OTP keys manager written in Bash
+
+# Dependencies: coreutils, bash, oathtool
+# Optional dependencies: qrencode, feh
+
+SUCCESS=0
+ERROR=1
+
+NAME="2fa"
+AUTHOR="L. Abramovich"
+VERSION="0.2.3"
+DATE="December 18, 2020"
+LICENSE="GPL2+"
+
+KEYS_PATH="$HOME/.config/$NAME"
+CONFIG_FILE="$KEYS_PATH/${NAME}.conf"
+TMP_DIR="/tmp"
+
+### FUNCTIONS DEFINITIONS ###
+
+function echoerr ()
+{
+	echo -e "$@" >&2
+}
+
+function help ()
+{
+	echo -e "${NAME}: An OTP keys manager
+Usage: ${NAME} [OPTIONS]
+
+  -a NAME	Add a new account named NAME
+  -d NAME	Delete the account NAME
+  -D 		Same as -d, but lists available accounts to choose from
+  -h		Print this help and exit
+  -i NANE	Display the QR code image of account NAME
+  -I 		Same as -i, but lists available accounts to choose from
+  -l		List available accounts
+  -p NAME	Print the OTP password of account NAME
+  -P 		Same as -p, but lists available accounts to choose from
+  -v		Print version information
+  -x		Specify the image viewer to be used to display a QR code image. \
+It must be used before the -i and -I options
+
+If no option is specified, the default action (-P) will be executed.
+
+Accounts are stored in ${KEYS_PATH}. The configuration file is \
+${CONFIG_FILE}. You can specify here the default image viewer."
+}
+
+function version ()
+{
+	echo "$NAME $VERSION ($DATE) by $AUTHOR\nLicense: $LICENSE"
+}
+
+function check_config ()
+{
+	if ! [[ -d "$KEYS_PATH" ]]; then
+		/usr/bin/mkdir -p "$KEYS_PATH"
+		/usr/bin/chmod 700 "$KEYS_PATH"
+	fi
+	if ! [[ -e "$CONFIG_FILE" ]]; then
+		echo "viewer=/usr/bin/feh" > "$CONFIG_FILE"
+		/usr/bin/chmod 600 "$CONFIG_FILE"
+	fi
+}
+
+function check_oath ()
+{
+	if ! [[ $(type -P /usr/bin/oathtool) ]]; then
+		echoerr "oathtool: Command not found"
+		exit $ERROR
+	fi
+}
+
+function check_qrencode ()
+{
+	if ! [[ $(type -P /usr/bin/qrencode) ]]; then
+		echoerr "qrencode: Command not found"
+		exit $ERROR
+	fi
+}
+
+function get_accounts ()
+{
+	mapfile -t accounts< <(/usr/bin/ls "$KEYS_PATH" 2>/dev/null \
+	| /usr/bin/grep -v ".*.conf")
+
+	if [[ ${#accounts[*]} -eq 0 ]]; then
+		echoerr "No accounts found"
+		echo "Use the -a option to add a new account"
+		exit $ERROR
+	fi
+}
+
+function check_account ()
+{
+	get_accounts
+
+	account=$1
+
+	if [[ -z $account ]]; then
+		for (( i=0;i<${#accounts[*]};i++ )); do
+			echo "$((i+1)) - ${accounts[$i]}"
+		done
+
+		read -rp "Choose an account: " answer
+
+		if [[ $answer -gt ${#accounts[*]} || $answer -le 0 ]]; then
+			echoerr "'$answer': Invalid account"
+			exit $ERROR
+		fi
+		
+		account="$(echo "${accounts[$((answer-1))]}")"
+		
+	elif [[ ${accounts[*]} != *"$account"* ]]; then
+		echoerr "${account}: No such account"
+		exit $ERROR
+	fi
+}
+
+function check_viewer ()
+{
+	if [[ -n $usr_viewer ]]; then
+		if [[ $(type -P "$usr_viewer") ]]; then
+			VIEWER_BIN="$usr_viewer"
+		else
+			echoerr "${usr_viewer}: Command not found.\nTrying ${VIEWER_BIN}... "
+		fi
+	else
+		echo "No image viewer specified. Trying ${VIEWER_BIN}... "
+	fi	
+}
+
+function del_account ()
+{
+	get_accounts
+
+	account="$1"
+	check_account "$account"
+
+	if [[ ${accounts[*]} == *"$account"* ]]; then
+		/usr/bin/rm "${KEYS_PATH}/$account"
+		if ! [[ -e "${KEYS_PATH}/$account" ]]; then
+			echo "${account}: Account succesfully removed"
+		fi
+	else
+		echoerr "${account}: No such account"
+		exit $ERROR
+	fi
+}
+
+function gen_account ()
+{
+	account=$1
+	
+	while [[ -z $account ]]; do
+		read -p "Account: " account
+	done
+	
+	key=""
+	
+	while [[ -z $key ]]; do
+		read -p "Key: " key
+	done
+	
+	echo "$key" > "${KEYS_PATH}/$account"
+	
+	if [[ -e "${KEYS_PATH}/$account" ]]; then
+		echo "${account}: Account successfully generated"
+		/usr/bin/chmod 600 "${KEYS_PATH}/$account"
+	else
+		echoerr "${account}: Error generating account"
+		exit $ERROR
+	fi
+}
+
+function list_accounts ()
+{
+	get_accounts
+
+	for (( i=0;i<${#accounts[*]};i++ )); do
+		echo "${accounts[$i]}"
+	done
+}
+
+function get_key ()
+{
+	account=$1
+	key="$(/usr/bin/sed -n 1p "$KEYS_PATH"/"$account")"
+}
+
+function display_qr ()
+{
+	check_qrencode
+
+	check_oath
+
+	account="$1"
+	check_account "$account"
+
+	get_key "$account"
+
+	if ! /usr/bin/qrencode -s10 -d300 -lH -o "$TMP_DIR/${account}.png" "otpauth://totp/${account}?secret=${key}"; then
+		echoerr "Error generating QR code. Try again."
+		exit $ERROR
+	fi
+
+	check_viewer
+
+	[[ -z $DISPLAY ]] && DISPLAY=":0.0"
+
+	if $VIEWER_BIN "$TMP_DIR/${account}.png"; then
+		# If the image was correctly displayed, remove it
+		/usr/bin/rm "$TMP_DIR/${account}.png"
+	else # If the image could not be displayed, tell the user where to find it
+		echo "QR code image saved to $TMP_DIR/${account}.png"
+	fi
+
+}
+
+function print_otp ()
+{
+	check_oath
+
+	account=$1
+	check_account "$account"
+
+	get_key "$account"
+
+	if ! /usr/bin/oathtool -b -d6 --totp=sha1 "$key"; then
+		exit $ERROR
+	fi
+}
+
+function main ()
+{
+	gen_qr=0
+	account=""
+	usr_viewer=""
+
+	check_config
+
+	VIEWER_BIN="$(/usr/bin/awk -F'=' '/viewer/{print $2}' \
+	$KEYS_PATH/${NAME}.conf)"
+
+	# If no argument, run the default action
+	if [[ -z $1 ]]; then
+		print_otp
+		exit $SUCCESS
+	fi
+
+	while getopts ":a:Dd:Ii:lPp:hvx:" opt; do
+		case $opt in
+			
+			a) gen_account "$OPTARG" ;;
+
+			d) del_account "$OPTARG" ;;
+
+			D) del_account ;;
+			
+			h) help ;;
+
+			i)
+				gen_qr=1
+				display_qr "$OPTARG"
+			;;
+
+			I)
+				gen_qr=1
+				display_qr
+			;;
+
+			l) list_accounts ;;
+			
+			p) print_otp "$OPTARG" ;;
+
+			P) print_otp ;;
+			
+			v) version ;;
+
+			x) usr_viewer=$OPTARG ;;
+
+			\?)
+				echoerr "$NAME: '$OPTARG': Invalid option\nTry '$NAME -h' for more information"
+				exit $ERROR
+			;;
+
+			:)
+				echoerr "$NAME: '$OPTARG': This option requires an argument\nTry '$NAME -h' for more information"
+				exit $ERROR
+			;;
+		esac
+	done
+}
+
+#### MAIN ####
+
+main "$@"
+
+exit $SUCCESS
