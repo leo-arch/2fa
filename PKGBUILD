@@ -1,14 +1,14 @@
 # Maintainer: archcrack <johndoe.arch@outlook.com>
 
 pkgname=2fa
-pkgver=0.3.1
+pkgver=0.3.2
 pkgrel=1
 pkgdesc="A little OTP keys manager written in Bash"
 arch=(any)
 url="https://github.com/leo-arch/2fa"
 license=(GPL2)
 depends=('bash' 'coreutils' 'oath-toolkit')
-optdepends=('qrencode: Generate QR code images' 'feh: Display QR code images')
+optdepends=('qrencode: Generate QR code images' 'feh: Display QR code images' 'zbar: Import key from image')
 makedepends=('git')
 source=("git+${url}.git")
 sha256sums=('SKIP')

@@ -1,6 +1,6 @@
 pkgbase = 2fa
 	pkgdesc = A little OTP keys manager written in Bash
-	pkgver = 0.3.1
+	pkgver = 0.3.2
 	pkgrel = 1
 	url = https://github.com/leo-arch/2fa
 	arch = any
@@ -11,6 +11,7 @@ pkgbase = 2fa
 	depends = oath-toolkit
 	optdepends = qrencode: Generate QR code images
 	optdepends = feh: Display QR code images
+	optdepends = zbar: Import key from image
 	source = git+https://github.com/leo-arch/2fa.git
 	sha256sums = SKIP
 

@@ -6,16 +6,17 @@
 # Optional dependencies: qrencode, feh
 
 # TODO list
-# 1 - Add the possibility to read (zbarimg) or scan (zbarcam) QR codes 
-#+ when adding new accounts
+# 1 - Add the possibility to scan (zbarcam) QR codes when adding new accounts. 
+#+ Use /dev/video0 as default video device. Add an option (-V) to specify 
+#+ the video device.
 
 SUCCESS=0
 ERROR=1
 
 NAME="2fa"
 AUTHOR="L. Abramovich"
-VERSION="0.3.1"
-DATE="December 19, 2020"
+VERSION="0.3.2"
+DATE="December 20, 2020"
 WEBSITE="https://github.com/leo-arch/2fa"
 LICENSE="GPL2+"
 
@@ -38,6 +39,8 @@ Usage: ${NAME} [OPTIONS]
   -a NAME	Add a new account named NAME
   -d NAME	Delete the account NAME
   -D 		Same as -d, but lists available accounts to choose from
+  -f FILE	Use FILE to get the key when adding a new account. This option \
+must be used before the -a option	
   -h		Print this help and exit
   -i NAME	Display the QR code image of account NAME
   -I 		Same as -i, but lists available accounts to choose from
@@ -144,8 +147,8 @@ function check_viewer ()
 	fi
 
 	if [[ -z $VIEWER_BIN ]]; then
-		viewers=( $(/usr/bin/cut -d"=" -f2 "$CONFIG_FILE" 2>/dev/null \
-		| /usr/bin/sed 's/;/ /g') )
+		viewers=( $(/usr/bin/grep "viewer" "$CONFIG_FILE" 2>/dev/null \
+		| /usr/bin/cut -d"=" -f2 | /usr/bin/sed 's/;/ /g') )
 		for i in ${viewers[*]}; do
 			echo -ne "Trying ${i}... "
 			if [[ $(type -P "$i") ]]; then
@@ -172,34 +175,53 @@ function del_account ()
 	account="$1"
 	check_account "$account"
 
-	if [[ ${accounts[*]} == *"$account"* ]]; then
-		/usr/bin/rm "${KEYS_PATH}/$account"
-		if ! [[ -e "${KEYS_PATH}/$account" ]]; then
-			echo "${account}: Account succesfully removed"
+	for i in ${accounts[*]}; do
+		if [[ $i == $account ]]; then
+			/usr/bin/rm "${KEYS_PATH}/$account"
+			if ! [[ -e "${KEYS_PATH}/$account" ]]; then
+				echo "${account}: Account succesfully removed"
+			fi
+			exit $SUCESS
 		fi
-	else
-		echoerr "${account}: No such account"
-		exit $ERROR
-	fi
+	done
+	
+	echoerr "${account}: No such account"
+	exit $ERROR
 }
 
 function gen_account ()
 {
-	account=$1
+	get_accounts
 	
+	account="$1"
+
 	while [[ -z $account ]]; do
 		read -p "Account: " account
 	done
 	
-	key=""
-	
-	while [[ -z $key ]]; do
-		read -p "Key: " key
+	for i in ${accounts[*]}; do
+		if [[ $i == $account ]]; then
+			echoerr "${account}: Account already exist"
+			exit $ERROR
+		fi
 	done
+	
+	if [[  -z $img_file ]]; then
+		key=""
+		while [[ -z $key ]]; do
+			read -p "Key: " key
+		done
+	else
+		get_key_from_img "$img_file"
+		if [[ -z $key ]]; then
+			echoerr "Error decoding QR code from $img_file"
+			exit $ERROR
+		fi
+	fi
 	
 	echo "$key" > "${KEYS_PATH}/$account"
 	
-	if [[ -e "${KEYS_PATH}/$account" ]]; then
+	if [[ -f "${KEYS_PATH}/$account" ]]; then
 		echo "${account}: Account successfully generated"
 		/usr/bin/chmod 600 "${KEYS_PATH}/$account"
 	else
@@ -212,8 +234,8 @@ function list_accounts ()
 {
 	get_accounts
 
-	for (( i=0;i<${#accounts[*]};i++ )); do
-		echo "${accounts[$i]}"
+	for i in ${accounts[*]}; do
+		echo "$i"
 	done
 }
 
@@ -221,6 +243,29 @@ function get_key ()
 {
 	account=$1
 	key="$(/usr/bin/sed -n 1p "$KEYS_PATH"/"$account")"
+}
+
+function get_key_from_img ()
+{
+	file="$1"
+	
+	if ! [[ -f "$img_file" ]]; then
+		echoerr "$img_file: No such file or directory"
+		exit $ERROR
+	fi
+	
+	if ! [[ $(type -P /usr/bin/zbarimg) ]]; then
+		echoerr "zbarimg: Command not found"
+		exit $ERROR
+	fi
+	
+	value=$(/usr/bin/zbarimg -q --raw "$img_file")
+	
+	if [[ $value == *"secret="* ]]; then
+		key=$(echo "$value" | /usr/bin/cut -d"=" -f2)
+	else
+		key="$value"
+	fi
 }
 
 function display_qr ()
@@ -271,6 +316,7 @@ function main ()
 	gen_qr=0
 	account=""
 	usr_viewer=""
+	img_file=""
 
 	check_config
 
@@ -280,7 +326,7 @@ function main ()
 		exit $SUCCESS
 	fi
 
-	while getopts ":a:Dd:Ii:lPp:hvx:" opt; do
+	while getopts ":a:Dd:f:hIi:lPp:vx:" opt; do
 		case $opt in
 			
 			a) gen_account "$OPTARG" ;;
@@ -288,6 +334,8 @@ function main ()
 			d) del_account "$OPTARG" ;;
 
 			D) del_account ;;
+			
+			f) img_file="$OPTARG" ;;
 			
 			h) help ;;
 
