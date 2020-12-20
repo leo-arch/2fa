@@ -1,7 +1,7 @@
 # Maintainer: archcrack <johndoe.arch@outlook.com>
 
 pkgname=2fa
-pkgver=0.2.3
+pkgver=0.3.1
 pkgrel=1
 pkgdesc="A little OTP keys manager written in Bash"
 arch=(any)

@@ -1,6 +1,6 @@
 pkgbase = 2fa
 	pkgdesc = A little OTP keys manager written in Bash
-	pkgver = 0.2.3
+	pkgver = 0.3.1
 	pkgrel = 1
 	url = https://github.com/leo-arch/2fa
 	arch = any

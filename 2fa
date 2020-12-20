@@ -5,13 +5,18 @@
 # Dependencies: coreutils, bash, oathtool
 # Optional dependencies: qrencode, feh
 
+# TODO list
+# 1 - Add the possibility to read (zbarimg) or scan (zbarcam) QR codes 
+#+ when adding new accounts
+
 SUCCESS=0
 ERROR=1
 
 NAME="2fa"
 AUTHOR="L. Abramovich"
-VERSION="0.2.3"
-DATE="December 18, 2020"
+VERSION="0.3.1"
+DATE="December 19, 2020"
+WEBSITE="https://github.com/leo-arch/2fa"
 LICENSE="GPL2+"
 
 KEYS_PATH="$HOME/.config/$NAME"
@@ -34,7 +39,7 @@ Usage: ${NAME} [OPTIONS]
   -d NAME	Delete the account NAME
   -D 		Same as -d, but lists available accounts to choose from
   -h		Print this help and exit
-  -i NANE	Display the QR code image of account NAME
+  -i NAME	Display the QR code image of account NAME
   -I 		Same as -i, but lists available accounts to choose from
   -l		List available accounts
   -p NAME	Print the OTP password of account NAME
@@ -51,7 +56,8 @@ ${CONFIG_FILE}. You can specify here the default image viewer."
 
 function version ()
 {
-	echo "$NAME $VERSION ($DATE) by $AUTHOR\nLicense: $LICENSE"
+	echo -e "$NAME $VERSION ($DATE) by $AUTHOR
+Website: $WEBSITE\nLicense: $LICENSE"
 }
 
 function check_config ()
@@ -61,7 +67,10 @@ function check_config ()
 		/usr/bin/chmod 700 "$KEYS_PATH"
 	fi
 	if ! [[ -e "$CONFIG_FILE" ]]; then
-		echo "viewer=/usr/bin/feh" > "$CONFIG_FILE"
+		echo "viewer=feh;xloadimage;gpicview;mirage;ristretto;lximage-qt;\
+eog;eom;gwenview;imv;deepin-image-viewer;ephoto;eyesight;galapix;nomacs;\
+phototonic;photoqt;pqiv;qimv;qimgv;qiv;qview;viewnior;sxiv;vimiv;vpv;shufti;\
+geeqie;fbida;fbv;fim;jfview" > "$CONFIG_FILE"
 		/usr/bin/chmod 600 "$CONFIG_FILE"
 	fi
 }
@@ -114,7 +123,7 @@ function check_account ()
 		
 		account="$(echo "${accounts[$((answer-1))]}")"
 		
-	elif [[ ${accounts[*]} != *"$account"* ]]; then
+	elif [[ ${accounts[*]} != *" $account"* ]]; then
 		echoerr "${account}: No such account"
 		exit $ERROR
 	fi
@@ -122,15 +131,38 @@ function check_account ()
 
 function check_viewer ()
 {
+	VIEWER_BIN=""
+
 	if [[ -n $usr_viewer ]]; then
 		if [[ $(type -P "$usr_viewer") ]]; then
 			VIEWER_BIN="$usr_viewer"
 		else
-			echoerr "${usr_viewer}: Command not found.\nTrying ${VIEWER_BIN}... "
+			echoerr "${usr_viewer}: Command not found"
 		fi
 	else
-		echo "No image viewer specified. Trying ${VIEWER_BIN}... "
-	fi	
+		echo "No image viewer specified"
+	fi
+
+	if [[ -z $VIEWER_BIN ]]; then
+		viewers=( $(/usr/bin/cut -d"=" -f2 "$CONFIG_FILE" 2>/dev/null \
+		| /usr/bin/sed 's/;/ /g') )
+		for i in ${viewers[*]}; do
+			echo -ne "Trying ${i}... "
+			if [[ $(type -P "$i") ]]; then
+				VIEWER_BIN="$i"
+				echo "OK"
+				break;
+			else
+				echo "Failed"
+			fi
+		done
+
+		if [[ -z $VIEWER_BIN ]]; then
+			echoerr "No image viewer found"
+			echo "QR code image saved to $TMP_DIR/${account}.png"
+			exit $ERROR
+		fi
+	fi
 }
 
 function del_account ()
@@ -242,9 +274,6 @@ function main ()
 
 	check_config
 
-	VIEWER_BIN="$(/usr/bin/awk -F'=' '/viewer/{print $2}' \
-	$KEYS_PATH/${NAME}.conf)"
-
 	# If no argument, run the default action
 	if [[ -z $1 ]]; then
 		print_otp
@@ -280,7 +309,7 @@ function main ()
 			
 			v) version ;;
 
-			x) usr_viewer=$OPTARG ;;
+			x) usr_viewer="$OPTARG" ;;
 
 			\?)
 				echoerr "$NAME: '$OPTARG': Invalid option\nTry '$NAME -h' for more information"
